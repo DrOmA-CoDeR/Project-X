@@ -1,0 +1,121 @@
+import pygame
+
+pygame.init()
+
+# Код, описывающий окно программы
+WIDTH = 1080   # Ширина окна
+HEIGHT = 940   # Высота окна
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Марио на Pygame")
+
+# Создаём контроль FPS
+clock = pygame.time.Clock()
+FPS = 60  
+
+# Параметры игрока
+PLAYER_WIDTH = 50
+PLAYER_HEIGHT = 50
+xp = WIDTH // 2 - PLAYER_WIDTH // 2  # Начальная позиция по центру
+yp = 0  # Начальная позиция по Y
+
+# --- ЗАГРУЗКА И НАСТРОЙКА КАРТИНОК ИГРОКА ---
+# Загружаем картинку для движения вправо
+mario_right_img = pygame.image.load("бегright.png").convert_alpha()
+# Масштабируем картинку под размеры игрока (50x50)
+mario_right = pygame.transform.scale(mario_right_img, (PLAYER_WIDTH, PLAYER_HEIGHT))
+
+# Создаем картинку для движения влево (зеркально отражаем по горизонтали)
+mario_left = pygame.transform.flip(mario_right, True, False)
+
+# Переменная, которая хранит текущий спрайт для отрисовки
+current_sprite = mario_right
+# --------------------------------------------
+
+# Параметры физики
+speed = 10  
+jump_power = -15  
+gravity = 0.8  
+velocity_y = 0  
+
+# Флаги движения
+move_x = 0  
+is_on_ground = True  
+
+# Параметры земли
+GROUND_HEIGHT = 100  
+ground_y = HEIGHT - GROUND_HEIGHT  
+
+# Игровой цикл и флаг выполнения программы
+game_run = True
+while game_run:
+    # БЛОК ОБРАБОТКИ СОБЫТИЙ ИГРЫ
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            game_run = False
+        
+        # Обработка нажатия клавиш
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_w and is_on_ground:
+                velocity_y = jump_power  
+                is_on_ground = False
+            if event.key == pygame.K_d:
+                move_x = 1
+                current_sprite = mario_right  # Меняем спрайт на "вправо"
+            if event.key == pygame.K_a:
+                move_x = -1
+                current_sprite = mario_left   # Меняем спрайт на "влево"
+            if event.key == pygame.K_SPACE and is_on_ground:
+                velocity_y = jump_power
+                is_on_ground = False
+        
+        # Обработка отпускания клавиш
+        if event.type == pygame.KEYUP:
+            if event.key == pygame.K_d and move_x == 1:
+                move_x = 0
+            if event.key == pygame.K_a and move_x == -1:
+                move_x = 0
+    
+    # БЛОК ИГРОВОЙ ЛОГИКИ
+    
+    # Горизонтальное движение
+    xp += speed * move_x
+    
+    # Вертикальная физика
+    velocity_y += gravity  
+    yp += velocity_y  
+    
+    # Коллизия с землёй
+    if yp + PLAYER_HEIGHT >= ground_y:
+        yp = ground_y - PLAYER_HEIGHT  
+        velocity_y = 0  
+        is_on_ground = True  
+    else:
+        is_on_ground = False  
+    
+    # Коллизия с потолком
+    if yp <= 0:
+        yp = 0
+        if velocity_y < 0:
+            velocity_y = 0  
+    
+    # Ограничение движения по горизонтали
+    if xp < 0:
+        xp = 0
+    if xp + PLAYER_WIDTH > WIDTH:
+        xp = WIDTH - PLAYER_WIDTH
+    
+    # ОЧИСТКА ЭКРАНА
+    screen.fill((135, 206, 235))  # Голубое небо
+    
+    # РИСОВАНИЕ ЗЕМЛИ
+    pygame.draw.rect(screen, (101, 67, 33), (0, ground_y, WIDTH, GROUND_HEIGHT))  
+    pygame.draw.rect(screen, (34, 139, 34), (0, ground_y, WIDTH, 10))  
+    
+    # ОТОБРАЖЕНИЕ КАРТИНКИ ИГРОКА (вместо pygame.draw.rect)
+    screen.blit(current_sprite, (xp, yp))
+    
+    # ОТОБРАЖЕНИЕ (обновление экрана)
+    pygame.display.flip()
+    clock.tick(FPS)
+
+pygame.quit()
