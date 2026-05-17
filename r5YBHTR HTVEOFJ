@@ -1,36 +1,27 @@
-import pygame
 import sys
+import pygame
 import random
 
 # Инициализация Pygame и звукового движка
 pygame.init()
-pygame.mixer.init() # Важно: запускаем микшер звуков
+pygame.mixer.init()
 
 # Код, описывающий окно программы
 WIDTH = 1080   
 HEIGHT = 940   
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Марио на Pygame — Со звуком!")
+pygame.display.set_caption("Марио на Pygame — Грибы из блоков!")
 
-# Создаём контроль FPS
 clock = pygame.time.Clock()
 FPS = 60  
 
 # --- ЗАГРУЗКА И НАСТРОЙКА ЗВУКОВ ---
-# Безопасная загрузка аудио (чтобы игра не вылетала, если файлов нет)
 try:
-    # Загружаем фоновую музыку
     pygame.mixer.music.load("gemini_music.mp3")
-    # Устанавливаем громкость (от 0.0 до 1.0)
     pygame.mixer.music.set_volume(0.2)
-    # Запускаем бесконечное воспроизведение (-1 означает зацикливание)
     pygame.mixer.music.play(-1)
-    
-
 except pygame.error:
     print("Предупреждение: Аудиофайлы не найдены. Игра запущена без звука.")
-    music_loaded = False
-# --------------------------------------------
 
 # Цветовая палитра для визуала
 SKY_TOP = (30, 144, 255)     
@@ -43,28 +34,37 @@ BTN_HOVER_COLOR = (100, 149, 237)
 # Инициализация шрифтов
 font_title = pygame.font.SysFont("Arial", 64, bold=True)
 font_menu = pygame.font.SysFont("Arial", 36, bold=True)
+font_hud = pygame.font.SysFont("Arial", 28, bold=True)
 
 # Параметры игрока
-PLAYER_WIDTH = 50
-PLAYER_HEIGHT = 50
-xp = WIDTH // 2 - PLAYER_WIDTH // 2  
+BASE_PLAYER_WIDTH = 50
+BASE_PLAYER_HEIGHT = 50
+PLAYER_WIDTH = BASE_PLAYER_WIDTH
+PLAYER_HEIGHT = BASE_PLAYER_HEIGHT
+xp = WIDTH // 4  
 yp = 0  
 
-# --- ЗАГРУЗКА И НАСТРОЙКА КАРТИНОК ИГРОКА ---
-try:
-    mario_right_img = pygame.image.load("бегright.png").convert_alpha()
-    mario_right = pygame.transform.scale(mario_right_img, (PLAYER_WIDTH, PLAYER_HEIGHT))
-    mario_left = pygame.transform.flip(mario_right, True, False)
-except pygame.error:
-    mario_right = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT), pygame.SRCALPHA)
-    pygame.draw.rect(mario_right, (255, 0, 0), (0, 0, PLAYER_WIDTH, PLAYER_HEIGHT), border_radius=8)
-    pygame.draw.circle(mario_right, (255, 255, 0), (40, 15), 6) 
-    mario_left = pygame.transform.flip(mario_right, True, False)
+# Состояние супер-игрока
+is_super = False
 
-current_sprite = mario_right
+# --- ЗАГРУЗКА И НАСТРОЙКА КАРТИНОК ИГРОКА ---
+def load_sprites():
+    global mario_right, mario_left, current_sprite
+    try:
+        mario_right_img = pygame.image.load("бегright.png").convert_alpha()
+        mario_right = pygame.transform.scale(mario_right_img, (PLAYER_WIDTH, PLAYER_HEIGHT))
+        mario_left = pygame.transform.flip(mario_right, True, False)
+    except pygame.error:
+        mario_right = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT), pygame.SRCALPHA)
+        pygame.draw.rect(mario_right, (255, 0, 0), (0, 0, PLAYER_WIDTH, PLAYER_HEIGHT), border_radius=8)
+        pygame.draw.circle(mario_right, (255, 255, 0), (int(PLAYER_WIDTH * 0.8), int(PLAYER_HEIGHT * 0.3)), 6) 
+        mario_left = pygame.transform.flip(mario_right, True, False)
+    current_sprite = mario_right
+
+load_sprites()
 
 # Параметры физики
-speed = 10  
+speed = 8  
 jump_power = -16  
 gravity = 0.8  
 velocity_y = 0  
@@ -77,15 +77,49 @@ is_on_ground = True
 GROUND_HEIGHT = 100  
 ground_y = HEIGHT - GROUND_HEIGHT  
 
-# --- ДЕКОРАЦИИ И ЭФФЕКТЫ ---
-clouds = []
-for _ in range(5):
-    cx = random.randint(0, WIDTH)
+# --- КАМЕРА ---
+camera_x = 0
+
+# --- ИГРОВОЙ МИР (ОБЪЕКТЫ) ---
+score_coins = 0
+max_generated_x = WIDTH 
+pipes = []       
+blocks = []       # Элемент теперь: [x, y, type, active_bool]
+coins = [] 
+clouds = []    
+mushrooms = []    # Новые объекты на карте: [x, y, vel_x, vel_y]
+
+# Первичная генерация облаков
+for _ in range(10):
+    cx = random.randint(-200, WIDTH * 2)
     cy = random.randint(50, 250)
     c_speed = random.uniform(0.2, 0.6)
     clouds.append([cx, cy, c_speed])
 
 particles = []
+
+def generate_world(player_x):
+    """Генерирует структуры перед игроком по мере его движения."""
+    global max_generated_x
+    while max_generated_x < player_x + WIDTH + 500:
+        max_generated_x += random.randint(250, 450)
+        choice = random.choice(['pipe', 'blocks', 'empty', 'coins_row'])
+        
+        if choice == 'pipe':
+            p_height = random.randint(60, 140)
+            pipes.append([max_generated_x, p_height])
+        elif choice == 'blocks':
+            by = ground_y - random.choice([150, 230])
+            for i in range(random.randint(2, 5)):
+                b_type = random.choice(['brick', 'q'])
+                # Четвертый параметр True означает, что блок содержит предмет / активен
+                blocks.append([max_generated_x + (i * 40), by, b_type, True])
+                if b_type == 'brick' and random.random() < 0.5:
+                    coins.append([max_generated_x + (i * 40) + 10, by - 40, True])
+        elif choice == 'coins_row':
+            cy = ground_y - random.randint(80, 200)
+            for i in range(random.randint(3, 6)):
+                coins.append([max_generated_x + (i * 40), cy, True])
 
 def draw_sky_gradient():
     for y in range(0, ground_y):
@@ -95,17 +129,20 @@ def draw_sky_gradient():
         b = int(SKY_TOP[2] + (SKY_BOTTOM[2] - SKY_TOP[2]) * color_factor)
         pygame.draw.line(screen, (r, g, b), (0, y), (WIDTH, y))
 
-def draw_clouds():
+def draw_clouds(cam_x):
     for cloud in clouds:
         cloud[0] -= cloud[2]  
-        if cloud[0] < -100:
-            cloud[0] = WIDTH + 100
+        screen_x = int(cloud[0] - cam_x * 0.2) 
+        
+        if screen_x < -150:
+            cloud[0] += WIDTH + 300
             cloud[1] = random.randint(50, 250)
-        pygame.draw.circle(screen, (255, 255, 255, 200), (int(cloud[0]), cloud[1]), 35)
-        pygame.draw.circle(screen, (255, 255, 255, 200), (int(cloud[0] - 25), cloud[1] + 5), 25)
-        pygame.draw.circle(screen, (255, 255, 255, 200), (int(cloud[0] + 25), cloud[1] + 5), 25)
+            
+        pygame.draw.circle(screen, (255, 255, 255, 200), (screen_x, cloud[1]), 35)
+        pygame.draw.circle(screen, (255, 255, 255, 200), (screen_x - 25, cloud[1] + 5), 25)
+        pygame.draw.circle(screen, (255, 255, 255, 200), (screen_x + 25, cloud[1] + 5), 25)
 
-def update_particles():
+def update_particles(cam_x):
     if move_x != 0 and is_on_ground:
         if random.random() < 0.4:  
             px = xp + PLAYER_WIDTH // 2 if move_x == -1 else xp
@@ -119,7 +156,7 @@ def update_particles():
         if p[4] <= 0:
             particles.remove(p)
         else:
-            pygame.draw.circle(screen, (240, 240, 240), (int(p[0]), int(p[1])), int(p[4]))
+            pygame.draw.circle(screen, (240, 240, 240), (int(p[0] - cam_x), int(p[1])), int(p[4]))
 
 def draw_menu():
     screen.fill(MENU_BG)
@@ -151,6 +188,25 @@ def draw_menu():
     pygame.display.flip()
     return btn_start_rect, btn_exit_rect
 
+def reset_game():
+    """Сброс параметров игры при перезапуске."""
+    global xp, yp, velocity_y, camera_x, score_coins, pipes, blocks, coins, max_generated_x, is_super, PLAYER_WIDTH, PLAYER_HEIGHT, mushrooms
+    PLAYER_WIDTH = BASE_PLAYER_WIDTH
+    PLAYER_HEIGHT = BASE_PLAYER_HEIGHT
+    is_super = False
+    load_sprites()
+    xp = WIDTH // 4
+    yp = ground_y - PLAYER_HEIGHT
+    velocity_y = 0
+    camera_x = 0
+    score_coins = 0
+    pipes.clear()
+    blocks.clear()
+    coins.clear()
+    mushrooms.clear()
+    max_generated_x = WIDTH
+    generate_world(xp)
+
 # --- ГЛАВНЫЙ СТРУКТУРНЫЙ ЦИКЛ ---
 in_menu = True
 game_run = True
@@ -163,6 +219,7 @@ while game_run:
                 game_run = False
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if btn_start.collidepoint(event.pos):
+                    reset_game()
                     in_menu = False  
                 if btn_exit.collidepoint(event.pos):
                     game_run = False
@@ -178,13 +235,9 @@ while game_run:
             if event.key == pygame.K_ESCAPE:  
                 in_menu = True
             
-            # Прыжок на W
-            if event.key == pygame.K_w and is_on_ground:
+            # Прыжок
+            if (event.key == pygame.K_w or event.key == pygame.K_SPACE) and is_on_ground:
                 velocity_y = jump_power  
-                is_on_ground = False                
-            # Прыжок на ПРОБЕЛ
-            if event.key == pygame.K_SPACE and is_on_ground:
-                velocity_y = jump_power
                 is_on_ground = False                
             if event.key == pygame.K_d:
                 move_x = 1
@@ -199,44 +252,204 @@ while game_run:
             if event.key == pygame.K_a and move_x == -1:
                 move_x = 0
     
-    # БЛОК ИГРОВОЙ ЛОГИКИ
+    # --- ДИНАМИЧЕСКАЯ ГЕНЕРАЦИЯ МИРА ---
+    generate_world(xp)
+
+    # ОБСЛУЖИВАНИЕ ФИЗИКИ ГОРИЗОНТАЛЬНОГО ДВИЖЕНИЯ
+    old_xp = xp
     xp += speed * move_x
+    if xp < 0: 
+        xp = 0
+
+    player_rect = pygame.Rect(xp, yp, PLAYER_WIDTH, PLAYER_HEIGHT)
+
+    # Проверка столкновений с ТРУБАМИ по горизонтали
+    for pipe in pipes:
+        pipe_rect = pygame.Rect(pipe[0], ground_y - pipe[1], 70, pipe[1])
+        if player_rect.colliderect(pipe_rect):
+            if is_super:  # Если Марио большой, столкновение сбоку уменьшает его обратно (дает иммунитет)
+                is_super = False
+                PLAYER_WIDTH = BASE_PLAYER_WIDTH
+                PLAYER_HEIGHT = BASE_PLAYER_HEIGHT
+                yp = ground_y - PLAYER_HEIGHT  # Сдвигаем на землю во избежание застревания
+                load_sprites()
+            xp = old_xp  
+            break
+
+    # Проверка столкновений с БЛОКАМИ по горизонтали
+    player_rect.x = xp 
+    for block in blocks:
+        block_rect = pygame.Rect(block[0], block[1], 40, 40)
+        if player_rect.colliderect(block_rect):
+            xp = old_xp
+            break
+
+    # ОБСЛУЖИВАНИЕ ФИЗИКИ ВЕРТИКАЛЬНОГО ДВИЖЕНИЯ
     velocity_y += gravity  
     yp += velocity_y  
-    
+    is_on_ground = False  
+
+    player_rect = pygame.Rect(xp, yp, PLAYER_WIDTH, PLAYER_HEIGHT)
+
+    # Проверка приземления на ТРУБЫ
+    for pipe in pipes:
+        pipe_rect = pygame.Rect(pipe[0], ground_y - pipe[1], 70, pipe[1])
+        if player_rect.colliderect(pipe_rect):
+            if velocity_y > 0 and yp + PLAYER_HEIGHT - velocity_y <= pipe_rect.top + 12:
+                yp = pipe_rect.top - PLAYER_HEIGHT
+                velocity_y = 0
+                is_on_ground = True
+
+    # Проверка столкновений с БЛОКАМИ по вертикали (снизу и сверху)
+    player_rect.y = yp
+    for block in blocks:
+        block_rect = pygame.Rect(block[0], block[1], 40, 40)
+        if player_rect.colliderect(block_rect):
+            if velocity_y > 0 and yp + PLAYER_HEIGHT - velocity_y <= block_rect.top + 12: # Приземление на блок
+                yp = block_rect.top - PLAYER_HEIGHT
+                velocity_y = 0
+                is_on_ground = True
+            elif velocity_y < 0: # УДАР ГОЛОВОЙ СНИЗУ В БЛОК
+                yp = block_rect.bottom
+                velocity_y = 0
+                
+                # Если это блок с вопросом и он еще активен
+                if block[2] == 'q' and block[3]:
+                    block[3] = False # Делаем блок неактивным (выбитым)
+                    # Спавним гриб прямо над блоком: [x, y, vel_x, vel_y]
+                    mushrooms.append([block[0] + 5, block[1] - 30, 3, -5])
+
+    # Ограничение по уровню земли
     if yp + PLAYER_HEIGHT >= ground_y:
         yp = ground_y - PLAYER_HEIGHT  
         velocity_y = 0  
         is_on_ground = True  
-    else:
-        is_on_ground = False  
     
     if yp <= 0:
         yp = 0
         if velocity_y < 0:
             velocity_y = 0  
-    
-    if xp < 0:
-        xp = 0
-    if xp + PLAYER_WIDTH > WIDTH:
-        xp = WIDTH - PLAYER_WIDTH
-    
-    # --- РЕНДЕР СЦЕНЫ ---
+
+    # СБОР МОНЕТОК
+    player_rect.y = yp
+    for coin in coins:
+        if coin[2]:  
+            coin_rect = pygame.Rect(coin[0], coin[1], 20, 25)
+            if player_rect.colliderect(coin_rect):
+                coin[2] = False
+                score_coins += 1
+
+    # --- ДВИЖЕНИЕ И ЛОГИКА ГРИБОВ ---
+    player_rect = pygame.Rect(xp, yp, PLAYER_WIDTH, PLAYER_HEIGHT)
+    for mush in mushrooms[:]:
+        mush[1] += mush[3] # Гравитация гриба
+        mush[3] += 0.5     # Падение скорости по Y
+        mush[0] += mush[2] # Движение по X
+        
+        # Ограничение гриба по земле
+        if mush[1] + 30 >= ground_y:
+            mush[1] = ground_y - 30
+            mush[3] = 0
+            
+        mush_rect = pygame.Rect(mush[0], mush[1], 30, 30)
+        
+        # Проверка: съел ли Марио гриб?
+        if player_rect.colliderect(mush_rect):
+            mushrooms.remove(mush)
+            if not is_super:
+                is_super = True
+                PLAYER_WIDTH = 65    # Увеличиваем ширину
+                PLAYER_HEIGHT = 80   # Увеличиваем высоту
+                yp -= 30             # Чуть приподнимаем персонажа, чтобы не провалился под текстуры
+                load_sprites()       # Пересобираем спрайты под новые размеры
+            continue
+            
+        # Удаление старых грибов, которые улетели далеко назад
+        if mush[0] < camera_x - 100:
+            mushrooms.remove(mush)
+
+    # --- ПЛАВНОЕ ДВИЖЕНИЕ КАМЕРЫ ---
+    camera_x += (xp - camera_x - WIDTH // 4) * 0.1
+    if camera_x < 0:
+        camera_x = 0
+
+    # --- РЕНДЕР СЦЕНЫ С УЧЕТОМ КАМЕРЫ ---
     draw_sky_gradient()  
-    pygame.draw.circle(screen, (255, 223, 0), (WIDTH - 120, 120), 50)
-    pygame.draw.circle(screen, (255, 255, 150, 100), (WIDTH - 120, 120), 65, 4) 
     
-    draw_clouds()        
-    update_particles()   
+    # Солнце
+    sun_screen_x = int((WIDTH - 120) - camera_x * 0.05)
+    pygame.draw.circle(screen, (255, 223, 0), (sun_screen_x, 120), 50)
+    pygame.draw.circle(screen, (255, 255, 150, 100), (sun_screen_x, 120), 65, 4) 
     
+    draw_clouds(camera_x)        
+    update_particles(camera_x)   
+    
+    # Рендер БЛОКОВ
+    for block in blocks:
+        scr_x = block[0] - camera_x
+        if -40 < scr_x < WIDTH:  
+            if block[2] == 'brick':
+                pygame.draw.rect(screen, (184, 115, 51), (scr_x, block[1], 40, 40), border_radius=3)
+                pygame.draw.rect(screen, (0, 0, 0), (scr_x, block[1], 40, 40), 2)
+            elif block[2] == 'q': 
+                if block[3]: # Если блок '?' активен (не выбит)
+                    pygame.draw.rect(screen, (218, 165, 32), (scr_x, block[1], 40, 40), border_radius=3)
+                    q_text = font_hud.render("?", True, (255, 255, 255))
+                    screen.blit(q_text, q_text.get_rect(center=(scr_x + 20, block[1] + 20)))
+                else: # Если блок уже выбит, он становится пустым коричневым блоком
+                    pygame.draw.rect(screen, (100, 100, 100), (scr_x, block[1], 40, 40), border_radius=3)
+                pygame.draw.rect(screen, (0, 0, 0), (scr_x, block[1], 40, 40), 2)
+
+    # Рендер МОНЕТОК
+    for coin in coins:
+        if coin[2]:
+            scr_x = coin[0] - camera_x
+            if -20 < scr_x < WIDTH:
+                pygame.draw.ellipse(screen, (255, 215, 0), (scr_x, coin[1], 20, 25))
+                pygame.draw.ellipse(screen, (0, 0, 0), (scr_x, coin[1], 20, 25), 2)
+
+    # Рендер ВЫЛЕТЕВШИХ ГРИБОВ
+    for mush in mushrooms:
+        scr_x = mush[0] - camera_x
+        if -30 < scr_x < WIDTH:
+            # Шляпка гриба
+            pygame.draw.ellipse(screen, (220, 20, 60), (scr_x, mush[1], 30, 20))
+            # Ножка гриба
+            pygame.draw.rect(screen, (245, 222, 179), (scr_x + 7, mush[1] + 15, 16, 15))
+            # Черные глаза гриба
+            pygame.draw.rect(screen, (0, 0, 0), (scr_x + 10, mush[1] + 17, 2, 6))
+            pygame.draw.rect(screen, (0, 0, 0), (scr_x + 18, mush[1] + 17, 2, 6))
+
+    # Рендер ТРУБ
+    for pipe in pipes:
+        scr_x = pipe[0] - camera_x
+        if -70 < scr_x < WIDTH:
+            p_top = ground_y - pipe[1]
+            pygame.draw.rect(screen, (34, 139, 34), (scr_x + 5, p_top, 60, pipe[1]))
+            pygame.draw.rect(screen, (0, 0, 0), (scr_x + 5, p_top, 60, pipe[1]), 3)
+            pygame.draw.rect(screen, (50, 205, 50), (scr_x, p_top, 70, 25), border_radius=2)
+            pygame.draw.rect(screen, (0, 0, 0), (scr_x, p_top, 70, 25), 3)
+
+    # Рендер ЗЕМЛИ
     pygame.draw.rect(screen, (101, 67, 33), (0, ground_y, WIDTH, GROUND_HEIGHT))  
     pygame.draw.rect(screen, (34, 139, 34), (0, ground_y, WIDTH, 18), border_radius=2)   
     pygame.draw.rect(screen, (50, 205, 50), (0, ground_y, WIDTH, 6))   
     
-    for i in range(0, WIDTH, 40):
-        pygame.draw.line(screen, (139, 69, 19), (i, ground_y + 30), (i + 10, ground_y + 45), 3)
+    start_tile_x = int(camera_x // 40) * 40
+    for x in range(start_tile_x - 40, start_tile_x + WIDTH + 40, 40):
+        scr_x = x - camera_x
+        pygame.draw.line(screen, (139, 69, 19), (scr_x, ground_y + 30), (scr_x + 10, ground_y + 45), 3)
 
-    screen.blit(current_sprite, (xp, yp))
+    # Рендер самого Марио
+    screen.blit(current_sprite, (xp - camera_x, yp))
+    
+    # --- ИНТЕРФЕЙС / HUD ---
+    hud_coins = font_hud.render(f"МОНЕТЫ: {score_coins}", True, (255, 215, 0))
+    hud_dist = font_hud.render(f"ДИСТАНЦИЯ: {int(xp // 10)}м", True, TEXT_COLOR)
+    screen.blit(hud_coins, (30, 60))
+    if is_super:
+        hud_status = font_hud.render("СТАТУС: СУПЕР-МАРИО", True, (50, 255, 50))
+        screen.blit(hud_status, (30, 100))
     
     pygame.display.flip()
     clock.tick(FPS)
